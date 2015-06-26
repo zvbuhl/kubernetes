@@ -49,7 +49,6 @@ var dns1123LabelErrorMsg string = fmt.Sprintf(`must be a DNS label (at most %d c
 var dns952LabelErrorMsg string = fmt.Sprintf(`must be a DNS 952 label (at most %d characters, matching regex %s): e.g. "my-name"`, util.DNS952LabelMaxLength, util.DNS952LabelFmt)
 var pdPartitionErrorMsg string = intervalErrorMsg(0, 255)
 var portRangeErrorMsg string = intervalErrorMsg(0, 65536)
-var portNameErrorMsg string = fmt.Sprintf(`must be a IANA_SVC_NAME (at most 15 characters, matching regex %s and it must containts at least one letter [a-z], hypens cannot be adjacent to other hyphens): e.g. "http"`, util.IdentifierNoHyphensBeginEndFmt)
 
 const totalAnnotationSizeLimitB int = 64 * (1 << 10) // 64 kB
 
@@ -595,8 +594,8 @@ func validatePorts(ports []api.ContainerPort) errs.ValidationErrorList {
 	for i, port := range ports {
 		pErrs := errs.ValidationErrorList{}
 		if len(port.Name) > 0 {
-			if !util.IsValidPortName(port.Name) {
-				pErrs = append(pErrs, errs.NewFieldInvalid("name", port.Name, portNameErrorMsg))
+			if len(port.Name) > util.DNS1123LabelMaxLength || !util.IsDNS1123Label(port.Name) {
+				pErrs = append(pErrs, errs.NewFieldInvalid("name", port.Name, dns1123LabelErrorMsg))
 			} else if allNames.Has(port.Name) {
 				pErrs = append(pErrs, errs.NewFieldDuplicate("name", port.Name))
 			} else {
@@ -760,8 +759,8 @@ func validateHTTPGetAction(http *api.HTTPGetAction) errs.ValidationErrorList {
 	}
 	if http.Port.Kind == util.IntstrInt && !util.IsValidPortNum(http.Port.IntVal) {
 		allErrors = append(allErrors, errs.NewFieldInvalid("port", http.Port, portRangeErrorMsg))
-	} else if http.Port.Kind == util.IntstrString && !util.IsValidPortName(http.Port.StrVal) {
-		allErrors = append(allErrors, errs.NewFieldInvalid("port", http.Port.StrVal, portNameErrorMsg))
+	} else if http.Port.Kind == util.IntstrString && len(http.Port.StrVal) == 0 {
+		allErrors = append(allErrors, errs.NewFieldRequired("port"))
 	}
 	supportedSchemes := util.NewStringSet(string(api.URISchemeHTTP), string(api.URISchemeHTTPS))
 	if !supportedSchemes.Has(string(http.Scheme)) {
@@ -774,8 +773,8 @@ func validateTCPSocketAction(tcp *api.TCPSocketAction) errs.ValidationErrorList 
 	allErrors := errs.ValidationErrorList{}
 	if tcp.Port.Kind == util.IntstrInt && !util.IsValidPortNum(tcp.Port.IntVal) {
 		allErrors = append(allErrors, errs.NewFieldInvalid("port", tcp.Port, portRangeErrorMsg))
-	} else if tcp.Port.Kind == util.IntstrString && !util.IsValidPortName(tcp.Port.StrVal) {
-		allErrors = append(allErrors, errs.NewFieldInvalid("port", tcp.Port.StrVal, portNameErrorMsg))
+	} else if tcp.Port.Kind == util.IntstrString && len(tcp.Port.StrVal) == 0 {
+		allErrors = append(allErrors, errs.NewFieldRequired("port"))
 	}
 	return allErrors
 }
@@ -1135,11 +1134,10 @@ func validateServicePort(sp *api.ServicePort, requireName bool, allNames *util.S
 		allErrs = append(allErrs, errs.NewFieldValueNotSupported("protocol", sp.Protocol, supportedPortProtocols.List()))
 	}
 
-	if sp.TargetPort.Kind == util.IntstrInt && !util.IsValidPortNum(sp.TargetPort.IntVal) {
-		allErrs = append(allErrs, errs.NewFieldInvalid("targetPort", sp.TargetPort, portRangeErrorMsg))
-	}
-	if sp.TargetPort.Kind == util.IntstrString && !util.IsValidPortName(sp.TargetPort.StrVal) {
-		allErrs = append(allErrs, errs.NewFieldInvalid("targetPort", sp.TargetPort, portNameErrorMsg))
+	if sp.TargetPort != util.NewIntOrStringFromInt(0) && sp.TargetPort != util.NewIntOrStringFromString("") {
+		if sp.TargetPort.Kind == util.IntstrInt && !util.IsValidPortNum(sp.TargetPort.IntVal) {
+			allErrs = append(allErrs, errs.NewFieldInvalid("targetPort", sp.TargetPort, portRangeErrorMsg))
+		}
 	}
 
 	return allErrs
